@@ -1,8 +1,8 @@
 //
 //  main.cpp
-//  trainStation
+//  trainStationStruct
 //
-//  Created by Christian Puga on 24/4/18.
+//  Created by Christian Puga on 2/5/18.
 //  Copyright © 2018 Christian Puga. All rights reserved.
 //
 
@@ -16,280 +16,339 @@ const int MAX_ROUTES = 100;
 typedef struct _station {
     char identify;
     struct _connection *listConnections[MAX_CONNECTION];
-    int pListConnections = 0;
+    int pListConnections;
+    
+    void constructor(char identify) {
+        this->identify = identify;
+        this->pListConnections = 0;
+    }
+    
+    bool addConnection(struct _connection *connection) {
+        int i;
+        bool result = true;
+        
+        for (i = 0; i < this->pListConnections && result; i++) {
+            if (this->listConnections[i] == connection) {
+                result = false;
+            }
+        }
+        
+        if (result) {
+            this->listConnections[this->pListConnections] = connection;
+            this->pListConnections++;
+        }
+        
+        return result;
+    }
 } station;
 
 typedef struct _connection {
+    int distanceMetters;
+    int speedMaxKiloMettersHours;
+    double time;
     _station *station;
-    int distance;
+    
+    void constructor(int distanceMetters, int speedMaxKiloMettersHours, _station *station) {
+        float temp;
+        
+        this->station = station;
+        this->distanceMetters = distanceMetters;
+        this->speedMaxKiloMettersHours = speedMaxKiloMettersHours;
+        
+        temp = (double) speedMaxKiloMettersHours * 1000 / 3600;
+        this->time = distanceMetters / temp;
+    }
 } connection;
-
-typedef struct _network {
-    _station *listStations[MAX_STATIONS];
-    int pListStations = 0;
-} network;
 
 typedef struct _route {
     _station *listStations[MAX_ROUTES];
     int pListStations = 0;
     bool finish = false;
     bool complete = false;
+    
+    bool existStation(_station *station) {
+        int i;
+        bool result = false;
+        
+        for (i = 0; i < this->pListStations && !result; i++) {
+            if (this->listStations[i] == station) {
+                result = true;
+            }
+        }
+        
+        return result;
+    }
+    
+    void addStation(_station *station) {
+        this->listStations[this->pListStations] = station;
+        this->pListStations++;
+    }
+    
+    double total(char type) {
+        int i, ii;
+        double result = 0;
+        bool operation;
+        
+        for (i = 0; i < this->pListStations - 1; i++) {
+            operation = false;
+            
+            for (ii = 0; ii < this->listStations[i]->pListConnections && !operation; ii++) {
+                if (this->listStations[i]->listConnections[ii]->station == this->listStations[i + 1]) {
+                    operation = true;
+                    
+                    switch (type) {
+                        case 'd':
+                            result += this->listStations[i]->listConnections[ii]->distanceMetters;
+                            break;
+                        
+                        case 't':
+                            result += this->listStations[i]->listConnections[ii]->time;
+                            break;
+                            
+                        default:
+                            operation = false;
+                            break;
+                    }
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    _station *getLastStation() {
+        return this->listStations[this->pListStations - 1];
+    }
 } route;
+
+typedef struct _matrix {
+    int y = 0;
+    int x = 0;
+    double path[MAX_STATIONS][MAX_STATIONS] = {-1};
+} matrix;
+
+typedef struct _network {
+    _station *listStations[MAX_STATIONS];
+    int pListStations;
+    
+    void constructor() {
+        this->pListStations = 0;
+    }
+    
+    _station *existStation(char identity) {
+        int i;
+        _station *stt = NULL;
+        
+        for (i = 0; i < this->pListStations && stt == NULL; i++) {
+            if (this->listStations[i]->identify == identity) {
+                stt = this->listStations[i];
+            }
+        }
+        
+        return stt;
+    }
+    
+    bool addStation(_station *station) {
+        bool result = false;
+        
+        if (station != NULL && this->existStation(station->identify) == NULL) {
+            this->listStations[this->pListStations] = station;
+            this->pListStations++;
+            result = true;
+        }
+        
+        return result;
+    }
+    
+    _route calculateRouteMin(_route *route, _station *destitny, char type) {
+        int i;
+        _route finishRoute, posibleRoute, compareRoute;
+        
+        if (route->getLastStation()->pListConnections > 0) {
+            for (i = 0; i < route->getLastStation()->pListConnections; i++) {
+                if (!route->existStation(route->getLastStation()->listConnections[i]->station)) {
+                    if (route->getLastStation()->listConnections[i]->station != destitny) {
+                        posibleRoute = *route;
+                        posibleRoute.addStation(route->getLastStation()->listConnections[i]->station);
+                        posibleRoute = this->calculateRouteMin(&posibleRoute, destitny, type);
+                        
+                        if (posibleRoute.finish && posibleRoute.complete) {
+                            compareRoute = posibleRoute;
+                        }
+                    } else {
+                        compareRoute = *route;
+                        compareRoute.addStation(route->getLastStation()->listConnections[i]->station);
+                        compareRoute.finish = true;
+                        compareRoute.complete = true;
+                    }
+                    
+                    if (compareRoute.finish && compareRoute.complete) {
+                        if (!finishRoute.complete) {
+                            finishRoute = compareRoute;
+                        } else if (compareRoute.total(type) < finishRoute.total(type)) {
+                            finishRoute = compareRoute;
+                        } else if (compareRoute.total(type) == finishRoute.total(type)) {
+                            if (compareRoute.pListStations < finishRoute.pListStations) {
+                                finishRoute = compareRoute;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            finishRoute = *route;
+            finishRoute.finish = true;
+        }
+        
+        return finishRoute;
+    }
+    
+    _route createRouteMin(_station *origin, _station *destiny, char type) {
+        _route route;
+        
+        route.addStation(origin);
+        route = this->calculateRouteMin(&route, destiny, type);
+        
+        return route;
+    }
+    
+    _matrix getMatrixDistance(char type) {
+        int x, y, i;
+        bool put;
+        _matrix matrix;
+        
+        matrix.x = this->pListStations;
+        matrix.y = this->pListStations;
+        
+        for (y = 0; y < matrix.y; y++) {
+            for (x = 0; x < matrix.x; x++) {
+                if (this->listStations[y] == this->listStations[x]) {
+                    matrix.path[y][x] = -1;
+                } else {
+                    put = false;
+                    
+                    for (i = 0; i < this->listStations[y]->pListConnections && !put; i++) {
+                        if (this->listStations[x] == this->listStations[y]->listConnections[i]->station) {
+                            put = true;
+                            
+                            switch (type) {
+                                case 'd':
+                                    matrix.path[y][x] = this->listStations[y]->listConnections[i]->distanceMetters;
+                                    break;
+                                    
+                                case 's':
+                                    matrix.path[y][x] = this->listStations[y]->listConnections[i]->speedMaxKiloMettersHours;
+                                    break;
+                                    
+                                case 't':
+                                    matrix.path[y][x] = this->listStations[y]->listConnections[i]->time;
+                                    break;
+                                    
+                                default:
+                                    put = false;
+                                    break;
+                            }
+                        }
+                    }
+                    
+                    if (!put) {
+                        matrix.path[y][x] = -1;
+                    }
+                }
+            }
+        }
+        
+        return matrix;
+    }
+} network;
 
 typedef station *Station;
 typedef connection *Connection;
 typedef network *Network;
 typedef route Route;
+typedef matrix Matrix;
 
-/** Station **/
+/** Create **/
 Station createStation(char identify) {
-    Station stt = NULL;
+    Station station = NULL;
     
-    stt = (Station) malloc(sizeof(station));
+    station = (Station) malloc(sizeof(_station));
     
-    if (stt != NULL) {
-        stt->identify = identify;
-        stt->pListConnections = 0;
+    if (station != NULL) {
+        station->constructor(identify);
     }
     
-    return stt;
+    return station;
 }
 
-/** Connection **/
-Connection createConnection(int distance, Station *stt) {
-    Connection con = NULL;
+Connection createConnection(int distanceMetters, int speedMaxKiloMettersHours, Station station) {
+    Connection connection = NULL;
     
-    con = (Connection) malloc(sizeof(connection));
+    connection = (Connection) malloc(sizeof(_connection));
     
-    if (con != NULL) {
-        con->distance = distance;
-        con->station = (*stt);
+    if (connection != NULL) {
+        connection->constructor(distanceMetters, speedMaxKiloMettersHours, station);
     }
     
-    return con;
+    return connection;
 }
 
-bool addConnection(Station *stt, Connection *con) {
-    bool result = true;
-    int i;
-    
-    for (i = 0; i < (*stt)->pListConnections && result; i++) {
-        if ((*stt)->listConnections[i]->station == (*con)->station) {
-            result = false;
-        }
-    }
-    
-    if (result) {
-        (*stt)->listConnections[(*stt)->pListConnections] = (*con);
-        ((*stt)->pListConnections)++;
-    }
-    
-    return result;
-}
-
-/** NetWork **/
 Network createNetwork() {
-    Network net = NULL;
+    Network network = NULL;
     
-    net = (Network) malloc(sizeof(network));
+    network = (Network) malloc(sizeof(_network));
     
-    if (net != NULL) {
-        net->pListStations = 0;
+    if (network != NULL) {
+        network->constructor();
     }
     
-    return net;
+    return network;
 }
 
-Station existStation(char identity, Network *net) {
-    int i;
-    Station stt = NULL;
+/** Printers **/
+void printNetwork(char type, Network net) {
+    int i, x, y;
+    Matrix matrix;
     
-    for (i = 0; i < (*net)->pListStations; i++) {
-        if ((*net)->listStations[i]->identify == identity) {
-            stt = (*net)->listStations[i];
-        }
-    }
-    
-    return stt;
-}
-
-bool addStation(Station *station, Network *net) {
-    bool result = false;
-    
-    if (station != NULL && existStation((*station)->identify, &(*net)) == NULL) {
-        (*net)->listStations[(*net)->pListStations] = (*station);
-        ((*net)->pListStations)++;
-        result = true;
-    }
-    
-    return result;
-}
-
-void showStation(Network *net) {
-    int i;
-    
-    for (i = 0; i < (*net)->pListStations; i++) {
-        printf("Station %02i: %c\n", i, (*net)->listStations[i]->identify);
-    }
-}
-
-void printNetwork(Network *net) {
-    int i, ii, iii;
-    bool print = false;
+    matrix = net->getMatrixDistance(type);
     
     printf("   |");
-    for (i = 0; i < (*net)->pListStations; i++) {
-        printf(" %c |", (*net)->listStations[i]->identify);
+    for (i = 0; i < net->pListStations; i++) {
+        printf("   %c   |", net->listStations[i]->identify);
     }
     printf("\n");
     printf("---|");
-    for (i = 0; i < (*net)->pListStations; i++) {
-        printf("---|");
+    for (i = 0; i < net->pListStations; i++) {
+        printf("-------|");
     }
     printf("\n");
-    for (i = 0; i < (*net)->pListStations; i++) {
-        printf(" %c |", (*net)->listStations[i]->identify);
-        
-        for (ii = 0; ii < (*net)->pListStations; ii++) {
-            if ((*net)->listStations[i]->identify == (*net)->listStations[ii]->identify) {
-                printf(" - |");
+    
+    for (y = 0; y < matrix.y; y++) {
+        for (x = -1; x < matrix.x; x++) {
+            if (x == -1) {
+                printf(" %c |", net->listStations[y]->identify);
             } else {
-                print = false;
-                
-                for (iii = 0; iii < (*net)->listStations[i]->pListConnections; iii++) {
-                    if ((*net)->listStations[ii]->identify == (*net)->listStations[i]->listConnections[iii]->station->identify) {
-                        print = true;
-                        printf("%2i |", (*net)->listStations[i]->listConnections[iii]->distance);
-                    }
-                }
-                
-                if (!print) {
-                    printf(" - |");
-                }
-            }
-        }
-        
-        printf("\n");
-    }
-}
-
-void createMapNetwork(Network *net) {
-    int path[MAX_STATIONS][MAX_STATIONS] = {-1};
-    int x, y, i;
-    bool print;
-    
-    for (y = 0; y < (*net)->pListStations; y++) {
-        for (x = 0; x < (*net)->pListStations; x++) {
-            if ((*net)->listStations[y]->identify == (*net)->listStations[x]->identify) {
-                path[y][x] = -1;
-            } else {
-                print = false;
-                
-                for (i = 0; i < (*net)->listStations[y]->pListConnections; i++) {
-                    if ((*net)->listStations[x]->identify == (*net)->listStations[y]->listConnections[i]->station->identify) {
-                        print = true;
-                        path[y][x] = (*net)->listStations[y]->listConnections[i]->distance;
-                    }
-                }
-                
-                if (!print) {
-                    path[y][x] = -1;
-                }
-            }
-        }
-    }
-    
-    for (y = 0; y < (*net)->pListStations; y++) {
-        for (x = 0; x < (*net)->pListStations; x++) {
-            printf("%3i", path[y][x]);
-        }
-        printf("\n");
-    }
-}
-
-/** Route **/
-bool existInRoute(Station *station, Route *route) {
-    int i;
-    bool result = false;
-    
-    for (i = 0; i < route->pListStations && !result; i++) {
-        if (route->listStations[i] == (*station)) {
-            result = true;
-        }
-    }
-    
-    return result;
-}
-
-void addRoute(Station *station, Route *route) {
-    route->listStations[route->pListStations] = (*station);
-    (route->pListStations)++;
-}
-
-int routeDistance(Route *route) {
-    int i, ii, result = 0;
-    
-    for (i = 0; i < route->pListStations - 1; i++) {
-        for (ii = 0; ii < route->listStations[i]->pListConnections; ii++) {
-            if (route->listStations[i]->listConnections[ii]->station == route->listStations[i + 1]) {
-                result += route->listStations[i]->listConnections[ii]->distance;
-            }
-        }
-    }
-    
-    return result;
-}
-
-Route calcMin(Route *route, Station *destiny) {
-    int i;
-    Route finishRoute, posibleRoute, compareRoute;
-    
-    if (route->listStations[route->pListStations - 1]->pListConnections > 0) {
-        for (i = 0; i < route->listStations[route->pListStations - 1]->pListConnections; i++) {
-            if (!existInRoute(&(route->listStations[route->pListStations - 1]->listConnections[i]->station), route)) {
-                if (route->listStations[route->pListStations - 1]->listConnections[i]->station != (*destiny)) {
-                    posibleRoute = (*route);
-                    addRoute(&(route->listStations[route->pListStations - 1]->listConnections[i]->station), &posibleRoute);
-                    posibleRoute = calcMin(&posibleRoute, &(*destiny));
-                    
-                    if (posibleRoute.finish && posibleRoute.complete) {
-                        compareRoute = posibleRoute;
-                    }
+                if (matrix.path[y][x] == (double) -1) {
+                    printf("  ---  |");
                 } else {
-                    compareRoute = *route;
-                    addRoute(&(route->listStations[route->pListStations - 1]->listConnections[i]->station), &compareRoute);
-                    compareRoute.finish = true;
-                    compareRoute.complete = true;
-                }
-                
-                if (compareRoute.finish && compareRoute.complete) {
-                    if (!finishRoute.complete) {
-                        finishRoute = compareRoute;
-                    } else if (routeDistance(&compareRoute) < routeDistance(&finishRoute)) {
-                        finishRoute = compareRoute;
-                    } else if (routeDistance(&compareRoute) == routeDistance(&finishRoute)) {
-                        if (compareRoute.pListStations < finishRoute.pListStations) {
-                            finishRoute = compareRoute;
-                        }
-                    }
+                    printf("%6.2lf |", matrix.path[y][x]);
                 }
             }
         }
-    } else {
-        finishRoute = *route;
-        finishRoute.finish = true;
+        
+        printf("\n");
     }
-    
-    return finishRoute;
 }
 
-Route routeMin(Station *origin, Station *destiny) {
-    Route route;
+void printMatrix(Matrix *matrix) {
+    int x, y;
     
-    addRoute(&(*origin), &route);
-    route = calcMin(&route, &(*destiny));
-
-    return route;
+    for (y = 0; y < matrix->y; y++) {
+        for (x = 0; x < matrix->x; x++) {
+            printf("%6.2lf", matrix->path[y][x]);
+        }
+        printf("\n");
+    }
 }
 
 void printRoute(Route *route) {
@@ -301,26 +360,26 @@ void printRoute(Route *route) {
 }
 
 /** Maintenance **/
-void createAndAddStation(char identity, Network *net) {
+void createAndAddStation(char identity, Network network) {
     Station station = NULL;
     
-    if (existStation(identity, &(*net)) == NULL) {
+    if (network->existStation(identity) == NULL) {
         station = createStation(identity);
         
         if (station != NULL) {
-            addStation(&station, &(*net));
+            network->addStation(station);
         }
     }
 }
 
-void createConnectionAndAdd(char identity1, char identity2, int distance, Network *net) {
+void createConnectionAndAdd(char identity1, char identity2, int distance, int speedMax, Network network) {
     Station station1 = NULL, station2 = NULL;
     Connection con = NULL;
     
-    station1 = existStation(identity1, &(*net));
-    station2 = existStation(identity2, &(*net));
-    con = createConnection(distance, &station2);
-    addConnection(&station1, &con);
+    station1 = network->existStation(identity1);
+    station2 = network->existStation(identity2);
+    con = createConnection(distance, speedMax, station2);
+    station1->addConnection(con);
 }
 
 void clearBuffer() {
@@ -329,57 +388,59 @@ void clearBuffer() {
 }
 
 /** Config **/
-void loadDefaultValues(int config, Network *net) {
+void loadDefaultValues(int config, Network net) {
     switch (config) {
         case 0:
-            createAndAddStation('A', &(*net));
-            createAndAddStation('B', &(*net));
-            createAndAddStation('C', &(*net));
-            createAndAddStation('D', &(*net));
-            createConnectionAndAdd('A', 'B', 20, &(*net));
-            createConnectionAndAdd('B', 'C', 20, &(*net));
-            createConnectionAndAdd('A', 'D', 30, &(*net));
-            createConnectionAndAdd('D', 'C', 40, &(*net));
-            createConnectionAndAdd('B', 'D', 10, &(*net));
+            createAndAddStation('A', net);
+            createAndAddStation('B', net);
+            createAndAddStation('C', net);
+            createAndAddStation('D', net);
+            createConnectionAndAdd('A', 'B', 20, 50, net);
+            createConnectionAndAdd('B', 'C', 20, 50, net);
+            createConnectionAndAdd('A', 'D', 30, 50, net);
+            createConnectionAndAdd('D', 'C', 40, 50, net);
+            createConnectionAndAdd('B', 'D', 10, 50, net);
             break;
-        
+            
         case 1:
-            createAndAddStation('A', &(*net));
-            createAndAddStation('B', &(*net));
-            createAndAddStation('C', &(*net));
-            createAndAddStation('D', &(*net));
-            createAndAddStation('E', &(*net));
-            createAndAddStation('F', &(*net));
-            createConnectionAndAdd('A', 'D', 9, &(*net));
-            createConnectionAndAdd('B', 'A', 3, &(*net));
-            createConnectionAndAdd('C', 'B', 1, &(*net));
-            createConnectionAndAdd('D', 'B', 6, &(*net));
-            createConnectionAndAdd('D', 'C', 4, &(*net));
-            createConnectionAndAdd('D', 'E', 8, &(*net));
-            createConnectionAndAdd('E', 'F', 7, &(*net));
-            createConnectionAndAdd('F', 'C', 9, &(*net));
-            createConnectionAndAdd('F', 'D', 11, &(*net));
+            createAndAddStation('A', net);
+            createAndAddStation('B', net);
+            createAndAddStation('C', net);
+            createAndAddStation('D', net);
+            createAndAddStation('E', net);
+            createAndAddStation('F', net);
+            createConnectionAndAdd('A', 'D', 9, 50, net);
+            createConnectionAndAdd('B', 'A', 3, 50, net);
+            createConnectionAndAdd('C', 'B', 1, 50, net);
+            createConnectionAndAdd('D', 'B', 6, 50, net);
+            createConnectionAndAdd('D', 'C', 4, 50, net);
+            createConnectionAndAdd('D', 'E', 8, 50, net);
+            createConnectionAndAdd('E', 'F', 7, 50, net);
+            createConnectionAndAdd('F', 'C', 9, 50, net);
+            createConnectionAndAdd('F', 'D', 11, 50, net);
             break;
     }
 }
 
 int main(int argc, const char * argv[]) {
     bool start = true;
-    int optionMainMenu, distanceStation;
+    int optionMainMenu, distanceStation, speedStation;
     char identifyStation;
     
     Network net = NULL;
     Station station = NULL, station1 = NULL, station2 = NULL;
     Connection con = NULL;
     Route route;
+    Matrix matrix;
     
     net = createNetwork();
+    
+    loadDefaultValues(0, net);
     
     while (start) {
         printf("Red de estaciones");
         printf("\n1- Crear estacion");
         printf("\n2- Crear camino");
-        printf("\n3- Listar estaciones");
         printf("\n4- Mostrar red");
         printf("\n5- Calculas ruta corta");
         printf("\n9- Cargar network por defecto");
@@ -400,7 +461,7 @@ int main(int argc, const char * argv[]) {
                     printf("Entra el identificador de la estacion: ");
                     scanf("%c", &identifyStation);
                     clearBuffer();
-                } while (existStation(identifyStation, &net) != NULL);
+                } while (net->existStation(identifyStation) != NULL);
                 
                 station = NULL;
                 station = createStation(identifyStation);
@@ -408,7 +469,7 @@ int main(int argc, const char * argv[]) {
                 if (station == NULL) {
                     printf("ERROR [C01] No se ha podido crear");
                 } else {
-                    if (!addStation(&station, &net)) {
+                    if (!net->addStation(station)) {
                         printf("ERROR [C02] No se ha podido crear");
                         station = NULL;
                     }
@@ -424,13 +485,13 @@ int main(int argc, const char * argv[]) {
                     printf("Entra el identificador de la origen: ");
                     scanf("%c", &identifyStation);
                     clearBuffer();
-                } while ((station1 = existStation(identifyStation, &net)) == NULL);
+                } while ((station1 = net->existStation(identifyStation)) == NULL);
                 
                 do {
                     printf("Entra el identificador de la destino: ");
                     scanf("%c", &identifyStation);
                     clearBuffer();
-                } while ((station2 = existStation(identifyStation, &net)) == NULL);
+                } while ((station2 = net->existStation(identifyStation)) == NULL);
                 
                 do {
                     printf("Entra la distancia: ");
@@ -438,33 +499,30 @@ int main(int argc, const char * argv[]) {
                     clearBuffer();
                 } while (distanceStation < 1);
                 
-                con = createConnection(distanceStation, &station2);
+                do {
+                    printf("Entra la velocidad maxima: ");
+                    scanf("%i", &speedStation);
+                    clearBuffer();
+                } while (distanceStation < 1);
+                
+                con = createConnection(distanceStation, speedStation, station2);
                 
                 if (con == NULL) {
                     printf("ERROR [L01] No se ha podido crear");
                 } else {
-                    if (!addConnection(&station1, &con)) {
+                    if (!station1->addConnection(con)) {
                         printf("ERROR [L02] No se ha podido crear");
                         station = NULL;
                     }
                 }
                 break;
                 
-            case 3:
-                if (net->pListStations > 0) {
-                    showStation(&net);
-                } else {
-                    printf("ERROR [L01] No se ha podido cargar");
-                }
-                break;
-                
             case 4:
                 if (net->pListStations > 0) {
-                    printNetwork(&net);
+                    printNetwork('t', net);
                 } else {
-                    printf("ERROR [L02] No se ha podido cargar");
+                    printf("ERROR [M01] No se ha podido cargar");
                 }
-//                createMapNetwork(&net);
                 break;
                 
             case 5:
@@ -476,21 +534,40 @@ int main(int argc, const char * argv[]) {
                     printf("Entra el identificador de la origen: ");
                     scanf("%c", &identifyStation);
                     clearBuffer();
-                } while ((station1 = existStation(identifyStation, &net)) == NULL);
+                } while ((station1 = net->existStation(identifyStation)) == NULL);
                 
                 do {
                     printf("Entra el identificador de la destino: ");
                     scanf("%c", &identifyStation);
                     clearBuffer();
-                } while ((station2 = existStation(identifyStation, &net)) == NULL);
+                } while ((station2 = net->existStation(identifyStation)) == NULL);
                 
-                route = routeMin(&station1, &station2);
+                do {
+                    printf("Entra el tipo de ruta a calcular: ");
+                    scanf("%c", &identifyStation);
+                    clearBuffer();
+                } while (identifyStation != 't' && identifyStation != 'd');
+                
+                route = net->createRouteMin(station1, station2, identifyStation);
                 
                 printf("\nRuta a seguir desde %c a %c: ", station1->identify, station2->identify);
                 
                 if (route.complete && route.finish) {
                     printRoute(&route);
-                    printf("con una distancia total de %i", routeDistance(&route));
+                    
+                    printf("con un");
+                    
+                    switch (identifyStation) {
+                        case 'd':
+                            printf("a distancia");
+                            break;
+                            
+                        case 't':
+                            printf("tiempo");
+                            break;
+                    }
+                    
+                    printf(" total de %.2lf", route.total(identifyStation));
                 } else {
                     printf("ERROR [R01] No se ha podido calcular");
                 }
@@ -505,7 +582,7 @@ int main(int argc, const char * argv[]) {
                 
                 free(net);
                 net = createNetwork();
-                loadDefaultValues(distanceStation, &net);
+                loadDefaultValues(distanceStation, net);
                 break;
                 
             default:
